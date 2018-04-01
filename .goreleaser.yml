@@ -21,4 +21,4 @@ archive:
     darwin: macOS
   format_overrides:
     - goos: windows
-    format: zip
+      format: zip

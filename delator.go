@@ -28,9 +28,7 @@ func setup(){
 	
 	flag.Usage = func() {
 		g.Printf(banner)
-		// fmt.Printf(" v.%s\n", version)
-		y.Printf("\nwritten & maintained with ♥ by NetEvert\n")
-		// fmt.Printf("[v.%s]\n\n", version)
+		y.Printf("\nwritten & maintained with ♥ by NetEvert\n\n")
 		fmt.Println(utilDescription)
 		flag.PrintDefaults()
 	}

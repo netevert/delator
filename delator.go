@@ -22,7 +22,7 @@ var (
 	version         = flag.Bool("v", false, "display version")
 	utilDescription = "delator -d domain"
 	myClient        = &http.Client{Timeout: 10 * time.Second}
-	appVersion      = "1.0.0"
+	appVersion      = "1.0.1"
 	banner          = `
 8"""8 8""" 8    8"""8 ""8"" 8""88 8""8  
 8e  8 8eee 8e   8eee8   8e  8   8 8ee8e

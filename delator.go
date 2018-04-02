@@ -19,7 +19,7 @@ var (
 	y               = color.New(color.FgHiYellow)
 	r               = color.New(color.FgHiRed)
 	domain          = flag.String("d", "", "target domain")
-	version         = flag.Bool("v", false, "display version")
+	ver             = flag.Bool("v", false, "display version")
 	utilDescription = "delator -d domain"
 	myClient        = &http.Client{Timeout: 10 * time.Second}
 	appVersion      = "1.0.2"
@@ -80,7 +80,7 @@ func setup() {
 
 	flag.Parse()
 
-	if *version {
+	if *ver {
 		y.Printf("DELATOR")
 		fmt.Printf(" v.%s\n", appVersion)
 		os.Exit(1)

@@ -8,6 +8,8 @@ and this project adheres to [Semantic Versioning](http://semver.org/spec/v2.0.0.
 ### Added
 - Changelog
 - Check for new version available
+- Concurrent A record lookups
+- Tabular report
 
 ### Fixed
 - Improved error handling

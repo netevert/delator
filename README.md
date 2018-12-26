@@ -8,15 +8,13 @@
 [![GitHub last commit](https://img.shields.io/github/last-commit/netevert/delator.svg?style=flat-square)](https://github.com/netevert/delator/commit/master)
 [![Donations](https://img.shields.io/badge/donate-bitcoin-orange.svg?logo=bitcoin&style=flat-square)](https://github.com/netevert/delator#donations)
 
-DELATOR (*lat.* **informer**) is a tool to perform subdomain enumeration through the abusing of certificate transparency logs. It expands on the original work done by [Sheila A. Berta](https://github.com/UnaPibaGeek) with her [CTFR](https://github.com/UnaPibaGeek/ctfr) tool and leverages the speed and power of [Go](https://golang.org/). 
+DELATOR (*lat.* **informer**) is a tool to perform subdomain enumeration and intial reconnaissance through the abusing of certificate transparency logs. It expands on the original work done by [Sheila A. Berta](https://github.com/UnaPibaGeek) with her [CTFR](https://github.com/UnaPibaGeek/ctfr) tool and leverages the speed and power of [Go](https://golang.org/). 
 
 ![demo](https://github.com/netevert/delator/blob/master/docs/demo.gif)
 
 Using DELATOR is as simple as running: 
 
     ./delator -d facebook.com
-
-**DELATOR is under active development** so do make sure you check back frequently for new releases.
 
 Installation
 ============
@@ -41,13 +39,7 @@ Versioning
 
 This project adheres to [Semantic Versioning](https://semver.org/).
 
-Donations
+Like it?
 =========
 
-<details><summary>If you like DELATOR please consider donating</summary>
-<p>
-    
-    Bitcoin:  13i3hFGN1RaQqdeWqmPTMuYEj9FiJWuMWf
-    Litecoin: LZqLoRNHvJyuKz99mNAgVUj6M8iyEQuio9
-</p>
-</details>
+ **DELATOR is under active development** so do make sure you check back frequently for new releases. However if you like the tool please consider contributing.

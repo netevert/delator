@@ -5,6 +5,7 @@ import (
 	"flag"
 	"fmt"
 	"github.com/fatih/color"
+	"github.com/tcnksm/go-latest"
 	"golang.org/x/net/publicsuffix"
 	"io/ioutil"
 	"net/http"
@@ -16,14 +17,18 @@ import (
 )
 
 var (
+	githubTag = &latest.GithubTag{
+		Owner:             "netevert",
+		Repository:        "delator",
+		FixVersionStrFunc: latest.DeleteFrontV()}
 	g               = color.New(color.FgHiGreen)
 	y               = color.New(color.FgHiYellow)
 	r               = color.New(color.FgHiRed)
-	domain          = flag.String("d", "", "target domain")
-	ver             = flag.Bool("v", false, "display version")
+	domain          = flag.String("d", "", "input domain")
+	ver             = flag.Bool("v", false, "check version")
 	utilDescription = "delator -d domain"
 	myClient        = &http.Client{Timeout: 10 * time.Second}
-	appVersion      = "1.0.3"
+	appVersion      = "1.1.0"
 	banner          = `
 8"""8 8""" 8    8"""8 ""8"" 8""88 8""8  
 8e  8 8eee 8e   8eee8   8e  8   8 8ee8e
@@ -41,27 +46,38 @@ type Data struct {
 	Not_before          string `json:"not_before"`
 }
 
+type Record struct {
+	Subdomain string `json:"subdomain"`
+	A         string `json:"a_record"`
+}
+
 // helper function to print errors and exit
 func printError(err string) {
 	fmt.Println("error:", err)
 	os.Exit(1)
 }
 
-// fetches certificate transparency json data
-func fetchData(Url string) ([]Data) {
-	res, err := http.Get(Url)
+// helper function to grab url and robustly handle errors
+func grabUrl(Url string) (resp *http.Response) {
+	resp, err := http.Get(Url)
 	if err, ok := err.(*url.Error); ok {
 		if err.Timeout() {
 			printError("request timed out")
 		} else if err.Temporary() {
 			printError("temporary error")
 		} else {
-			printError(fmt.Sprintf("%s", err.Err))		
+			printError(fmt.Sprintf("%s", err.Err))
 		}
 	}
-	if res.StatusCode != 200 {
-		printError(fmt.Sprintf("unexpected status code returned: %d", res.StatusCode))
+	if resp.StatusCode != 200 {
+		printError(fmt.Sprintf("unexpected status code returned: %d", resp.StatusCode))
 	}
+	return resp
+}
+
+// fetches certificate transparency json data
+func fetchData(Url string) []Data {
+	res := grabUrl(Url)
 	body, err := ioutil.ReadAll(res.Body)
 	if err != nil {
 		fmt.Println(err)
@@ -99,6 +115,10 @@ func setup() {
 	if *ver {
 		y.Printf("DELATOR")
 		fmt.Printf(" v.%s\n", appVersion)
+		res, _ := latest.Check(githubTag, appVersion)
+		if res.Outdated {
+			r.Printf("v.%s available\n", res.Current)
+		}
 		os.Exit(1)
 	}
 

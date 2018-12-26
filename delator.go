@@ -8,11 +8,14 @@ import (
 	"github.com/tcnksm/go-latest"
 	"golang.org/x/net/publicsuffix"
 	"io/ioutil"
+	"net"
 	"net/http"
 	"net/url"
 	"os"
 	"regexp"
 	"strings"
+	"sync"
+	"text/tabwriter"
 	"time"
 )
 
@@ -24,9 +27,12 @@ var (
 	g               = color.New(color.FgHiGreen)
 	y               = color.New(color.FgHiYellow)
 	r               = color.New(color.FgHiRed)
+	writer          = new(tabwriter.Writer)
+	wg              = &sync.WaitGroup{}
 	domain          = flag.String("d", "", "input domain")
+	resolve         = flag.Bool("a", false, "view A record")
 	ver             = flag.Bool("v", false, "check version")
-	utilDescription = "delator -d domain"
+	utilDescription = "delator -d domain [-av]"
 	myClient        = &http.Client{Timeout: 10 * time.Second}
 	appVersion      = "1.1.0"
 	banner          = `
@@ -101,6 +107,19 @@ func printData(data []Data) {
 	}
 }
 
+// deduplicates and returns subdomain list
+func extractSubdomains(data []Data) []string {
+	counter := make(map[string]int)
+	var subdomains []string
+	for _, i := range data {
+		counter[i.Name_value]++
+		if counter[i.Name_value] == 1 {
+			subdomains = append(subdomains, i.Name_value)
+		}
+	}
+	return subdomains
+}
+
 // sets up command-line arguments and default responses
 func setup() {
 	flag.Usage = func() {
@@ -139,8 +158,55 @@ func validateDomainName(domain string) bool {
 	return RegExp.MatchString(domain)
 }
 
-// sanitizes domains inputted into dnsmorph
-func processInput(input string) (sanitizedDomain string) {
+// performs an A record DNS lookup
+func aLookup(subdomain string) string {
+	ip, err := net.ResolveIPAddr("ip4", subdomain)
+	if err != nil {
+		return ""
+
+	}
+	return ip.String() // todo: fix to return only one IP
+}
+
+// performs lookups on individual subdomain record
+func doLookups(subdomain string, resolve bool, out chan<- Record) {
+	defer wg.Done()
+	r := new(Record)
+	r.Subdomain = subdomain
+	if resolve {
+		r.A = aLookup(r.Subdomain)
+	}
+	out <- *r
+}
+
+// runs bulk lookups on list of subdomains
+func runConcurrentLookups(subdomains []string, resolve bool, out chan<- Record) {
+	for _, subdomain := range subdomains {
+		wg.Add(1)
+		go doLookups(subdomain, resolve, out)
+	}
+}
+
+// helper function to wait for goroutines collection to finish and close channel
+func monitorWorker(wg *sync.WaitGroup, channel chan Record) {
+	wg.Wait()
+	close(channel)
+}
+
+// helper function to run lookups and print results
+func printResults(subdomains []string) {
+	out := make(chan Record)
+	writer.Init(os.Stdout, 14, 8, 0, '\t', tabwriter.DiscardEmptyColumns)
+	runConcurrentLookups(subdomains, *resolve, out)
+	go monitorWorker(wg, out)
+	for r := range out {
+		fmt.Fprintln(writer, r.A+"\t"+r.Subdomain+"\t")
+		writer.Flush()
+	}
+}
+
+// sanitizes domain inputs
+func sanitizedInput(input string) (sanitizedDomain string) {
 	if !validateDomainName(input) {
 		r.Printf("\nplease supply a valid domain\n\n")
 		fmt.Println(utilDescription)
@@ -154,7 +220,11 @@ func processInput(input string) (sanitizedDomain string) {
 // main program entry point
 func main() {
 	setup()
-	sanitizedDomain := processInput(*domain)
-	keys := fetchData(fmt.Sprintf("https://crt.sh/?q=%s&output=json", sanitizedDomain))
-	printData(keys)
+	sanitizedDomain := sanitizedInput(*domain)
+	subdomains := fetchData(fmt.Sprintf("https://crt.sh/?q=%s&output=json", sanitizedDomain))
+	if *resolve {
+		printResults(extractSubdomains(subdomains))
+	} else {
+		printData(subdomains)
+	}
 }

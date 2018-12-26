@@ -8,6 +8,7 @@ import (
 	"golang.org/x/net/publicsuffix"
 	"io/ioutil"
 	"net/http"
+	"net/url"
 	"os"
 	"regexp"
 	"strings"
@@ -40,22 +41,37 @@ type Data struct {
 	Not_before          string `json:"not_before"`
 }
 
+// helper function to print errors and exit
+func printError(err string) {
+	fmt.Println("error:", err)
+	os.Exit(1)
+}
+
 // fetches certificate transparency json data
-func fetchData(url string) ([]Data, error) {
-	res, err := http.Get(url)
-	if err != nil {
-		panic(err.Error())
+func fetchData(Url string) ([]Data) {
+	res, err := http.Get(Url)
+	if err, ok := err.(*url.Error); ok {
+		if err.Timeout() {
+			printError("request timed out")
+		} else if err.Temporary() {
+			printError("temporary error")
+		} else {
+			printError(fmt.Sprintf("%s", err.Err))		
+		}
+	}
+	if res.StatusCode != 200 {
+		printError(fmt.Sprintf("unexpected status code returned: %d", res.StatusCode))
 	}
 	body, err := ioutil.ReadAll(res.Body)
 	if err != nil {
-		panic(err.Error())
+		fmt.Println(err)
 	}
 	result := strings.Replace(string(body), "}{", "},{", -1)
 	d := fmt.Sprintf("[%s]", result)
 
 	keys := make([]Data, 0)
 	json.Unmarshal([]byte(d), &keys)
-	return keys, err
+	return keys
 }
 
 // deduplicates and prints subdomains
@@ -119,9 +135,6 @@ func processInput(input string) (sanitizedDomain string) {
 func main() {
 	setup()
 	sanitizedDomain := processInput(*domain)
-	keys, err := fetchData(fmt.Sprintf("https://crt.sh/?q=%s&output=json", sanitizedDomain))
-	if err != nil {
-		panic(err.Error())
-	}
+	keys := fetchData(fmt.Sprintf("https://crt.sh/?q=%s&output=json", sanitizedDomain))
 	printData(keys)
 }

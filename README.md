@@ -8,7 +8,7 @@
 [![GitHub last commit](https://img.shields.io/github/last-commit/netevert/delator.svg?style=flat-square)](https://github.com/netevert/delator/commit/master)
 [![Donations](https://img.shields.io/badge/donate-bitcoin-orange.svg?logo=bitcoin&style=flat-square)](https://github.com/netevert/delator#donations)
 
-DELATOR (*lat.* **informer**) is a tool to perform subdomain enumeration and intial reconnaissance through the abusing of certificate transparency logs. It expands on the original work done by [Sheila A. Berta](https://github.com/UnaPibaGeek) with her [CTFR](https://github.com/UnaPibaGeek/ctfr) tool and leverages the speed and power of [Go](https://golang.org/). 
+DELATOR (*lat.* **informer**) is a tool to perform subdomain enumeration and initial reconnaissance through the abusing of certificate transparency logs. It expands on the original work done by [Sheila A. Berta](https://github.com/UnaPibaGeek) with her [CTFR](https://github.com/UnaPibaGeek/ctfr) tool and leverages the speed and power of [Go](https://golang.org/). 
 
 ![demo](https://github.com/netevert/delator/blob/master/docs/demo.gif)
 

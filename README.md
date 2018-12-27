@@ -6,7 +6,6 @@
 [![Go Report Card](https://goreportcard.com/badge/github.com/netevert/delator?style=flat-square)](https://goreportcard.com/report/github.com/netevert/delator)
 [![Maintenance](https://img.shields.io/maintenance/yes/2018.svg?style=flat-square)]()
 [![GitHub last commit](https://img.shields.io/github/last-commit/netevert/delator.svg?style=flat-square)](https://github.com/netevert/delator/commit/master)
-[![Donations](https://img.shields.io/badge/donate-bitcoin-orange.svg?logo=bitcoin&style=flat-square)](https://github.com/netevert/delator#donations)
 
 DELATOR (*lat.* **informer**) is a tool to perform subdomain enumeration and initial reconnaissance through the abusing of certificate transparency logs. It expands on the original work done by [Sheila A. Berta](https://github.com/UnaPibaGeek) with her [CTFR](https://github.com/UnaPibaGeek/ctfr) tool and leverages the speed and power of [Go](https://golang.org/). 
 

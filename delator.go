@@ -1,15 +1,21 @@
 package main
 
 import (
+	"context"
 	"encoding/json"
 	"flag"
 	"fmt"
 	"github.com/fatih/color"
+	ct "github.com/google/certificate-transparency-go"
+	"github.com/google/certificate-transparency-go/client"
+	"github.com/google/certificate-transparency-go/jsonclient"
+	"github.com/google/certificate-transparency-go/scanner"
+	"github.com/google/certificate-transparency-go/x509"
 	"github.com/tcnksm/go-latest"
 	"golang.org/x/net/publicsuffix"
 	"io/ioutil"
 	"net"
-	"net/http"
+	http "net/http"
 	"net/url"
 	"os"
 	"regexp"
@@ -31,10 +37,11 @@ var (
 	wg              = &sync.WaitGroup{}
 	domain          = flag.String("d", "", "input domain")
 	resolve         = flag.Bool("a", false, "view A record")
-	ver             = flag.Bool("v", false, "check version")
+	store           = flag.Bool("s", false, "store ct logs")
+	ver             = flag.Bool("c", false, "check version")
 	utilDescription = "delator -d domain [-av]"
 	myClient        = &http.Client{Timeout: 10 * time.Second}
-	appVersion      = "1.1.0"
+	appVersion      = "1.2.0"
 	banner          = `
 8"""8 8""" 8    8"""8 ""8"" 8""88 8""8  
 8e  8 8eee 8e   8eee8   8e  8   8 8ee8e
@@ -131,6 +138,11 @@ func setup() {
 
 	flag.Parse()
 
+	if *store{
+		grabCTLog("https://ct.googleapis.com/aviator")
+		os.Exit(1)
+	}
+
 	if *ver {
 		y.Printf("DELATOR")
 		fmt.Printf(" v.%s\n", appVersion)
@@ -215,6 +227,80 @@ func sanitizedInput(input string) (sanitizedDomain string) {
 	}
 	sanitizedDomain, _ = publicsuffix.EffectiveTLDPlusOne(input)
 	return "%." + sanitizedDomain
+}
+
+// Prints out a short bit of info about |cert|, found at |index| in the
+// specified log
+func logCertInfo(entry *ct.RawLogEntry) {
+	parsedEntry, err := entry.ToLogEntry()
+	if x509.IsFatal(err) || parsedEntry.X509Cert == nil {
+		fmt.Printf("Process cert at index %d: <unparsed: %v>", entry.Index, err)
+	} else {
+		fmt.Printf("%s\n", parsedEntry.X509Cert.Subject.CommonName)
+	}
+	// dumpData(entry)
+}
+
+// Prints out a short bit of info about |precert|, found at |index| in the
+// specified log
+func logPrecertInfo(entry *ct.RawLogEntry) {
+	parsedEntry, err := entry.ToLogEntry()
+	if x509.IsFatal(err) || parsedEntry.Precert == nil {
+		fmt.Printf("Process precert at index %d: <unparsed: %v>", entry.Index, err)
+	} else {
+		fmt.Printf("%s\n", parsedEntry.Precert.TBSCertificate.Subject.CommonName)
+	}
+	// dumpData(entry)
+}
+
+func createRegexes(regexValue string) (*regexp.Regexp, *regexp.Regexp) {
+	// Make a regex matcher
+	var certRegex *regexp.Regexp
+	precertRegex := regexp.MustCompile(regexValue)
+	certRegex = precertRegex
+	return certRegex, precertRegex
+}
+
+func grabCTLog(inputLog string) {
+	logClient, err := client.New(inputLog, &http.Client{
+		Timeout: 10 * time.Second,
+		Transport: &http.Transport{
+			TLSHandshakeTimeout:   30 * time.Second,
+			ResponseHeaderTimeout: 30 * time.Second,
+			MaxIdleConnsPerHost:   10,
+			DisableKeepAlives:     false,
+			MaxIdleConns:          100,
+			IdleConnTimeout:       90 * time.Second,
+			ExpectContinueTimeout: 1 * time.Second,
+		},
+	}, jsonclient.Options{UserAgent: "delator-scanner/1.2"})
+	if err != nil {
+		printError("an error occurred")
+	}
+
+	certRegex, precertRegex := createRegexes(".*")
+	matcher, err := scanner.MatchSubjectRegex{
+		CertificateSubjectRegex:    certRegex,
+		PrecertificateSubjectRegex: precertRegex}, nil
+
+	if err != nil {
+		printError("an error occurred")
+	}
+
+	opts := scanner.ScannerOptions{
+		FetcherOptions: scanner.FetcherOptions{
+			BatchSize:     1000,
+			ParallelFetch: 2,
+			StartIndex:    0,
+			EndIndex:      0,
+		},
+		Matcher:    matcher,
+		NumWorkers: 2,
+	}
+	scanner := scanner.NewScanner(logClient, opts)
+
+	ctx := context.Background()
+	scanner.Scan(ctx, logCertInfo, logPrecertInfo)
 }
 
 // main program entry point

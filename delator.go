@@ -13,7 +13,6 @@ import (
 	"net/url"
 	"os"
 	"regexp"
-	"strings"
 	"sync"
 	"text/tabwriter"
 	"time"
@@ -34,7 +33,7 @@ var (
 	ver             = flag.Bool("v", false, "check version")
 	utilDescription = "delator -d domain [-av]"
 	myClient        = &http.Client{Timeout: 10 * time.Second}
-	appVersion      = "1.1.0"
+	appVersion      = "1.1.1"
 	banner          = `
 8"""8 8""" 8    8"""8 ""8"" 8""88 8""8  
 8e  8 8eee 8e   8eee8   8e  8   8 8ee8e
@@ -42,17 +41,17 @@ var (
 88ee8 88ee 88ee 88  8   88  8eee8 88  8`
 )
 
-type Data struct {
-	Issuer_ca_id        int    `json:"issuer_ca_id"`
-	Issuer_name         string `json:"issuer_name"`
-	Name_value          string `json:"name_value"`
-	Min_cert_id         int    `json:"min_cert_id"`
-	Min_entry_timestamp string `json:"min_entry_timestamp"`
-	Not_after           string `json:"not_after"`
-	Not_before          string `json:"not_before"`
+type data struct {
+	IssuerCaID        int    `json:"issuer_ca_id"`
+	IssuerName         string `json:"issuer_name"`
+	NameValue          string `json:"name_value"`
+	MinCertID         int    `json:"min_cert_id"`
+	MinEntryTimestamp string `json:"min_entry_timestamp"`
+	NotAfter           string `json:"not_after"`
+	NotBefore          string `json:"not_before"`
 }
 
-type Record struct {
+type record struct {
 	Subdomain string `json:"subdomain"`
 	A         string `json:"a_record"`
 }
@@ -64,8 +63,8 @@ func printError(err string) {
 }
 
 // helper function to grab url and robustly handle errors
-func grabUrl(Url string) (resp *http.Response) {
-	resp, err := http.Get(Url)
+func grabURL(URL string) (resp *http.Response) {
+	resp, err := http.Get(URL)
 	if err, ok := err.(*url.Error); ok {
 		if err.Timeout() {
 			printError("request timed out")
@@ -82,39 +81,37 @@ func grabUrl(Url string) (resp *http.Response) {
 }
 
 // fetches certificate transparency json data
-func fetchData(Url string) []Data {
-	res := grabUrl(Url)
+func fetchData(URL string) []data {
+	res := grabURL(URL)
 	body, err := ioutil.ReadAll(res.Body)
 	if err != nil {
 		fmt.Println(err)
 	}
-	result := strings.Replace(string(body), "}{", "},{", -1)
-	d := fmt.Sprintf("[%s]", result)
 
-	keys := make([]Data, 0)
-	json.Unmarshal([]byte(d), &keys)
+	keys := make([]data, 0)
+	json.Unmarshal([]byte(body), &keys)
 	return keys
 }
 
 // deduplicates and prints subdomains
-func printData(data []Data) {
+func printData(Data []data) {
 	counter := make(map[string]int)
-	for _, i := range data {
-		counter[i.Name_value]++
-		if counter[i.Name_value] == 1 {
-			y.Println(i.Name_value)
+	for _, i := range Data {
+		counter[i.NameValue]++
+		if counter[i.NameValue] == 1 {
+			y.Println(i.NameValue)
 		}
 	}
 }
 
 // deduplicates and returns subdomain list
-func extractSubdomains(data []Data) []string {
+func extractSubdomains(Data []data) []string {
 	counter := make(map[string]int)
 	var subdomains []string
-	for _, i := range data {
-		counter[i.Name_value]++
-		if counter[i.Name_value] == 1 {
-			subdomains = append(subdomains, i.Name_value)
+	for _, i := range Data {
+		counter[i.NameValue]++
+		if counter[i.NameValue] == 1 {
+			subdomains = append(subdomains, i.NameValue)
 		}
 	}
 	return subdomains
@@ -169,9 +166,9 @@ func aLookup(subdomain string) string {
 }
 
 // performs lookups on individual subdomain record
-func doLookups(subdomain string, resolve bool, out chan<- Record) {
+func doLookups(subdomain string, resolve bool, out chan<- record) {
 	defer wg.Done()
-	r := new(Record)
+	r := new(record)
 	r.Subdomain = subdomain
 	if resolve {
 		r.A = aLookup(r.Subdomain)
@@ -180,7 +177,7 @@ func doLookups(subdomain string, resolve bool, out chan<- Record) {
 }
 
 // runs bulk lookups on list of subdomains
-func runConcurrentLookups(subdomains []string, resolve bool, out chan<- Record) {
+func runConcurrentLookups(subdomains []string, resolve bool, out chan<- record) {
 	for _, subdomain := range subdomains {
 		wg.Add(1)
 		go doLookups(subdomain, resolve, out)
@@ -188,14 +185,14 @@ func runConcurrentLookups(subdomains []string, resolve bool, out chan<- Record) 
 }
 
 // helper function to wait for goroutines collection to finish and close channel
-func monitorWorker(wg *sync.WaitGroup, channel chan Record) {
+func monitorWorker(wg *sync.WaitGroup, channel chan record) {
 	wg.Wait()
 	close(channel)
 }
 
 // helper function to run lookups and print results
 func printResults(subdomains []string) {
-	out := make(chan Record)
+	out := make(chan record)
 	writer.Init(os.Stdout, 14, 8, 0, '\t', tabwriter.DiscardEmptyColumns)
 	runConcurrentLookups(subdomains, *resolve, out)
 	go monitorWorker(wg, out)

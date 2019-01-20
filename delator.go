@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"database/sql"
 	"encoding/json"
 	"flag"
 	"fmt"
@@ -11,6 +12,9 @@ import (
 	"github.com/google/certificate-transparency-go/jsonclient"
 	"github.com/google/certificate-transparency-go/scanner"
 	"github.com/google/certificate-transparency-go/x509"
+	"github.com/google/certificate-transparency-go/loglist"
+	"github.com/google/certificate-transparency-go/x509util"
+	_ "github.com/mattn/go-sqlite3"
 	"github.com/tcnksm/go-latest"
 	"golang.org/x/net/publicsuffix"
 	"io/ioutil"
@@ -39,7 +43,7 @@ var (
 	resolve         = flag.Bool("a", false, "view A record")
 	store           = flag.Bool("s", false, "store ct logs")
 	ver             = flag.Bool("c", false, "check version")
-	utilDescription = "delator -d domain [-av]"
+	utilDescription = "delator -d domain [-acs]"
 	myClient        = &http.Client{Timeout: 10 * time.Second}
 	appVersion      = "1.2.0"
 	banner          = `
@@ -49,17 +53,17 @@ var (
 88ee8 88ee 88ee 88  8   88  8eee8 88  8`
 )
 
-type Data struct {
-	Issuer_ca_id        int    `json:"issuer_ca_id"`
-	Issuer_name         string `json:"issuer_name"`
-	Name_value          string `json:"name_value"`
-	Min_cert_id         int    `json:"min_cert_id"`
-	Min_entry_timestamp string `json:"min_entry_timestamp"`
-	Not_after           string `json:"not_after"`
-	Not_before          string `json:"not_before"`
+type data struct {
+	IssuerCaID        int    `json:"issuer_ca_id"`
+	IssuerName         string `json:"issuer_name"`
+	NameValue          string `json:"name_value"`
+	MinCertID         int    `json:"min_cert_id"`
+	MinEntryTimestamp string `json:"min_entry_timestamp"`
+	NotAfter           string `json:"not_after"`
+	NotBefore          string `json:"not_before"`
 }
 
-type Record struct {
+type record struct {
 	Subdomain string `json:"subdomain"`
 	A         string `json:"a_record"`
 }
@@ -71,8 +75,8 @@ func printError(err string) {
 }
 
 // helper function to grab url and robustly handle errors
-func grabUrl(Url string) (resp *http.Response) {
-	resp, err := http.Get(Url)
+func grabURL(URL string) (resp *http.Response) {
+	resp, err := http.Get(URL)
 	if err, ok := err.(*url.Error); ok {
 		if err.Timeout() {
 			printError("request timed out")
@@ -89,8 +93,8 @@ func grabUrl(Url string) (resp *http.Response) {
 }
 
 // fetches certificate transparency json data
-func fetchData(Url string) []Data {
-	res := grabUrl(Url)
+func fetchData(URL string) []data {
+	res := grabURL(URL)
 	body, err := ioutil.ReadAll(res.Body)
 	if err != nil {
 		fmt.Println(err)
@@ -98,67 +102,33 @@ func fetchData(Url string) []Data {
 	result := strings.Replace(string(body), "}{", "},{", -1)
 	d := fmt.Sprintf("[%s]", result)
 
-	keys := make([]Data, 0)
+	keys := make([]data, 0)
 	json.Unmarshal([]byte(d), &keys)
 	return keys
 }
 
 // deduplicates and prints subdomains
-func printData(data []Data) {
+func printData(data []data) {
 	counter := make(map[string]int)
 	for _, i := range data {
-		counter[i.Name_value]++
-		if counter[i.Name_value] == 1 {
-			y.Println(i.Name_value)
+		counter[i.NameValue]++
+		if counter[i.NameValue] == 1 {
+			y.Println(i.NameValue)
 		}
 	}
 }
 
 // deduplicates and returns subdomain list
-func extractSubdomains(data []Data) []string {
+func extractSubdomains(data []data) []string {
 	counter := make(map[string]int)
 	var subdomains []string
 	for _, i := range data {
-		counter[i.Name_value]++
-		if counter[i.Name_value] == 1 {
-			subdomains = append(subdomains, i.Name_value)
+		counter[i.NameValue]++
+		if counter[i.NameValue] == 1 {
+			subdomains = append(subdomains, i.NameValue)
 		}
 	}
 	return subdomains
-}
-
-// sets up command-line arguments and default responses
-func setup() {
-	flag.Usage = func() {
-		g.Printf(banner)
-		y.Printf("\nwritten & maintained with ♥ by NetEvert\n\n")
-		fmt.Println(utilDescription)
-		flag.PrintDefaults()
-	}
-
-	flag.Parse()
-
-	if *store{
-		grabCTLog("https://ct.googleapis.com/aviator")
-		os.Exit(1)
-	}
-
-	if *ver {
-		y.Printf("DELATOR")
-		fmt.Printf(" v.%s\n", appVersion)
-		res, _ := latest.Check(githubTag, appVersion)
-		if res.Outdated {
-			r.Printf("v.%s available\n", res.Current)
-		}
-		os.Exit(1)
-	}
-
-	if *domain == "" {
-		r.Printf("\nplease supply a domain\n\n")
-		fmt.Println(utilDescription)
-		flag.PrintDefaults()
-		os.Exit(1)
-	}
 }
 
 // validates domains using regex
@@ -181,9 +151,9 @@ func aLookup(subdomain string) string {
 }
 
 // performs lookups on individual subdomain record
-func doLookups(subdomain string, resolve bool, out chan<- Record) {
+func doLookups(subdomain string, resolve bool, out chan<- record) {
 	defer wg.Done()
-	r := new(Record)
+	r := new(record)
 	r.Subdomain = subdomain
 	if resolve {
 		r.A = aLookup(r.Subdomain)
@@ -192,7 +162,7 @@ func doLookups(subdomain string, resolve bool, out chan<- Record) {
 }
 
 // runs bulk lookups on list of subdomains
-func runConcurrentLookups(subdomains []string, resolve bool, out chan<- Record) {
+func runConcurrentLookups(subdomains []string, resolve bool, out chan<- record) {
 	for _, subdomain := range subdomains {
 		wg.Add(1)
 		go doLookups(subdomain, resolve, out)
@@ -200,14 +170,14 @@ func runConcurrentLookups(subdomains []string, resolve bool, out chan<- Record) 
 }
 
 // helper function to wait for goroutines collection to finish and close channel
-func monitorWorker(wg *sync.WaitGroup, channel chan Record) {
+func monitorWorker(wg *sync.WaitGroup, channel chan record) {
 	wg.Wait()
 	close(channel)
 }
 
 // helper function to run lookups and print results
 func printResults(subdomains []string) {
-	out := make(chan Record)
+	out := make(chan record)
 	writer.Init(os.Stdout, 14, 8, 0, '\t', tabwriter.DiscardEmptyColumns)
 	runConcurrentLookups(subdomains, *resolve, out)
 	go monitorWorker(wg, out)
@@ -229,6 +199,17 @@ func sanitizedInput(input string) (sanitizedDomain string) {
 	return "%." + sanitizedDomain
 }
 
+// dumps retrieved common name into delator database
+func dumpData(CommonName string) {
+	fmt.Printf("%s\n", CommonName)
+	database, _ := sql.Open("sqlite3", "./data.db")
+	statement, _ := database.Prepare("CREATE TABLE IF NOT EXISTS subdomains (id INTEGER PRIMARY KEY, subdomain TEXT)")
+	statement.Exec()
+	statement, _ = database.Prepare("INSERT INTO subdomains (subdomain) VALUES (?)")
+	statement.Exec(CommonName)
+	database.Close()
+}
+
 // Prints out a short bit of info about |cert|, found at |index| in the
 // specified log
 func logCertInfo(entry *ct.RawLogEntry) {
@@ -236,9 +217,11 @@ func logCertInfo(entry *ct.RawLogEntry) {
 	if x509.IsFatal(err) || parsedEntry.X509Cert == nil {
 		fmt.Printf("Process cert at index %d: <unparsed: %v>", entry.Index, err)
 	} else {
-		fmt.Printf("%s\n", parsedEntry.X509Cert.Subject.CommonName)
+		commonName := parsedEntry.X509Cert.Subject.CommonName
+		if commonName != "" {
+			dumpData(commonName)
+		}
 	}
-	// dumpData(entry)
 }
 
 // Prints out a short bit of info about |precert|, found at |index| in the
@@ -248,9 +231,11 @@ func logPrecertInfo(entry *ct.RawLogEntry) {
 	if x509.IsFatal(err) || parsedEntry.Precert == nil {
 		fmt.Printf("Process precert at index %d: <unparsed: %v>", entry.Index, err)
 	} else {
-		fmt.Printf("%s\n", parsedEntry.Precert.TBSCertificate.Subject.CommonName)
+		commonName := parsedEntry.Precert.TBSCertificate.Subject.CommonName
+		if commonName != "" {
+			dumpData(commonName)
+		}
 	}
-	// dumpData(entry)
 }
 
 func createRegexes(regexValue string) (*regexp.Regexp, *regexp.Regexp) {
@@ -261,6 +246,52 @@ func createRegexes(regexValue string) (*regexp.Regexp, *regexp.Regexp) {
 	return certRegex, precertRegex
 }
 
+// fetches certificate transparency json data
+func grabKnownLogs(URL string) (*loglist.LogList) {
+	client := &http.Client{Timeout: time.Second * 10}
+
+	llData, err := x509util.ReadFileOrURL(URL, client)
+	if err != nil {
+		// glog.Exitf("Failed to read log list: %v", err) // TODO
+	}
+
+	ll, err := loglist.NewFromJSON(llData)
+	if err != nil {
+		// glog.Exitf("Failed to read log list: %v", err) // TODO
+	}
+	return ll
+}
+
+// prints a list of all known certificate transparency logs
+func printKnownLogs(){
+	logData := grabKnownLogs("https://www.gstatic.com/ct/log_list/log_list.json")
+	for i := range logData.Logs {
+		log := logData.Logs[i]
+		fmt.Println(log.URL)
+	}
+}
+
+// returns a list of all known certificate transparency log URLs
+func returnKnownLogURLS() []string {
+	var logUrls []string
+	logData := grabKnownLogs("https://www.gstatic.com/ct/log_list/log_list.json")
+	for i := range logData.Logs {
+		log := logData.Logs[i]
+		logUrls = append(logUrls, log.URL)
+	}
+	return logUrls
+}
+
+// downloads certificate transparency logs locally
+func downloadCTLogs(){
+	logs := returnKnownLogURLS()
+	for i := range logs {
+		fmt.Printf("\nDownloading %s\n", logs[i])
+		grabCTLog("https://" + logs[i])
+	}
+}
+
+// grabs subdomains from the supplied certificate transparency log
 func grabCTLog(inputLog string) {
 	logClient, err := client.New(inputLog, &http.Client{
 		Timeout: 10 * time.Second,
@@ -290,7 +321,7 @@ func grabCTLog(inputLog string) {
 	opts := scanner.ScannerOptions{
 		FetcherOptions: scanner.FetcherOptions{
 			BatchSize:     1000,
-			ParallelFetch: 2,
+			ParallelFetch: 4,
 			StartIndex:    0,
 			EndIndex:      0,
 		},
@@ -301,6 +332,67 @@ func grabCTLog(inputLog string) {
 
 	ctx := context.Background()
 	scanner.Scan(ctx, logCertInfo, logPrecertInfo)
+}
+
+// reads subdomains from database
+func readDatabase() {
+	var id int
+	var subdomain string
+	database, _ := sql.Open("sqlite3", "./data.db")
+	rows, err := database.Query("SELECT id, subdomain FROM subdomains")
+	if err != nil {
+		fmt.Println(err)
+	}
+	defer rows.Close()
+	for rows.Next() {
+		err := rows.Scan(&id, &subdomain)
+		if err != nil {
+			fmt.Println(err)
+		}
+        fmt.Println(subdomain)
+	}
+	err = rows.Err()
+	if err != nil {
+		fmt.Println(err)
+	}
+	database.Close()
+}
+
+// sets up command-line arguments and default responses
+func setup() {
+	flag.Usage = func() {
+		g.Printf(banner)
+		y.Printf("\nwritten & maintained with ♥ by NetEvert\n\n")
+		fmt.Println(utilDescription)
+		flag.PrintDefaults()
+	}
+
+	flag.Parse()
+
+	if *store{
+		readDatabase()
+		// downloadCTLogs()
+		// printKnownLogs()
+		// grabCTLog("https://ct.googleapis.com/aviator/")
+		os.Exit(1)
+	}
+
+	if *ver {
+		y.Printf("DELATOR")
+		fmt.Printf(" v.%s\n", appVersion)
+		res, _ := latest.Check(githubTag, appVersion)
+		if res.Outdated {
+			r.Printf("v.%s available\n", res.Current)
+		}
+		os.Exit(1)
+	}
+
+	if *domain == "" {
+		r.Printf("\nplease supply a domain\n\n")
+		fmt.Println(utilDescription)
+		flag.PrintDefaults()
+		os.Exit(1)
+	}
 }
 
 // main program entry point

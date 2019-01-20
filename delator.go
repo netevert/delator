@@ -23,7 +23,6 @@ import (
 	"net/url"
 	"os"
 	"regexp"
-	"strings"
 	"sync"
 	"text/tabwriter"
 	"time"
@@ -99,18 +98,16 @@ func fetchData(URL string) []data {
 	if err != nil {
 		fmt.Println(err)
 	}
-	result := strings.Replace(string(body), "}{", "},{", -1)
-	d := fmt.Sprintf("[%s]", result)
 
 	keys := make([]data, 0)
-	json.Unmarshal([]byte(d), &keys)
+	json.Unmarshal([]byte(body), &keys)
 	return keys
 }
 
 // deduplicates and prints subdomains
-func printData(data []data) {
+func printData(Data []data) {
 	counter := make(map[string]int)
-	for _, i := range data {
+	for _, i := range Data {
 		counter[i.NameValue]++
 		if counter[i.NameValue] == 1 {
 			y.Println(i.NameValue)
@@ -119,10 +116,10 @@ func printData(data []data) {
 }
 
 // deduplicates and returns subdomain list
-func extractSubdomains(data []data) []string {
+func extractSubdomains(Data []data) []string {
 	counter := make(map[string]int)
 	var subdomains []string
-	for _, i := range data {
+	for _, i := range Data {
 		counter[i.NameValue]++
 		if counter[i.NameValue] == 1 {
 			subdomains = append(subdomains, i.NameValue)

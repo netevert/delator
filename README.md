@@ -7,13 +7,17 @@
 [![Maintenance](https://img.shields.io/maintenance/yes/2019.svg?style=flat-square)]()
 [![GitHub last commit](https://img.shields.io/github/last-commit/netevert/delator.svg?style=flat-square)](https://github.com/netevert/delator/commit/master)
 
-DELATOR (*lat.* **informer**) is a tool to perform subdomain enumeration and initial reconnaissance through the abusing of certificate transparency logs. It expands on the original work done by [Sheila A. Berta](https://github.com/UnaPibaGeek) with her [CTFR](https://github.com/UnaPibaGeek/ctfr) tool and leverages the speed and power of [Go](https://golang.org/). 
+DELATOR (*lat.* **informer**) is a tool to perform subdomain enumeration and initial reconnaissance through the abusing of certificate transparency logs. It expands on the original work done by [Sheila A. Berta](https://github.com/UnaPibaGeek) with her [CTFR](https://github.com/UnaPibaGeek/ctfr) tool and leverages the speed and power of [Go](https://golang.org/).
 
 ![demo](https://github.com/netevert/delator/blob/master/docs/demo.gif)
 
-Using DELATOR is as simple as running: 
+Using DELATOR is as simple as running:
 
     ./delator -d facebook.com
+
+DELATOR can also be instructed to resolve any subdomains found, giving a first indication of any live sites:
+
+    ./delator -d facebook.com -a
 
 Installation
 ============
@@ -41,4 +45,6 @@ This project adheres to [Semantic Versioning](https://semver.org/).
 Like it?
 =========
 
- **DELATOR is under active development** so do make sure you check back frequently for new releases. However if you like the tool please consider contributing.
+ **DELATOR is under active development** so make sure you check back frequently for new releases. However if you like the tool please consider contributing.
+
+ A particular issue with DELATOR and [CTFR](https://github.com/UnaPibaGeek/ctfr) is that both tools rely entirely on [Comodo's Certificate Search API](https://crt.sh/). If the API is discontinued the tools will cease to work. A [new version](https://github.com/netevert/delator/tree/v.1.2.0) of DELATOR is currently in the works that will allow for the download of subdomains directly from certificate transparency logs and storage in a local database. This would allow for later scanning for subdomains on demand and give DELATOR the ability to retain it's usefulness should Comodo's API disappear.

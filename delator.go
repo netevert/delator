@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bufio"
 	"context"
 	"database/sql"
 	"encoding/json"
@@ -23,6 +24,8 @@ import (
 	"net/url"
 	"os"
 	"regexp"
+	"strconv"
+	"strings"
 	"sync"
 	"text/tabwriter"
 	"time"
@@ -73,6 +76,7 @@ type logSelection struct {
 	selectionNumber int
 	logValue string
 	logSize uint64
+	status string
 }
 
 // helper function to print errors and exit
@@ -272,29 +276,91 @@ func grabKnownLogs(URL string) *loglist.LogList {
 
 // prints a list of all known certificate transparency logs
 func printKnownLogs() {
-	fmt.Println("Pulling list of known logs")
+	writer.Init(os.Stdout, 10, 8, 0, '\t', tabwriter.AlignRight)
+	fmt.Fprintln(writer, "Selection\tLog size\tStatus\tLog URL\t")
+	fmt.Fprintln(writer, "---------\t--------\t------\t-------\t")
 	var collection []logSelection
 	var maxSelection = 0
 	logData := grabKnownLogs("https://www.gstatic.com/ct/log_list/log_list.json")
 	for i := range logData.Logs {
-		maxSelection++
-		var tmpSelection logSelection
+		maxSelection = i
+		var tmp logSelection
 		log := logData.Logs[i]
-		tmpSelection.selectionNumber = i
-		tmpSelection.logValue = log.URL
+		tmp.selectionNumber = i
+		tmp.logValue = log.URL
+		tmp.status = "available"
 		size, err := grabLogSize("https://" + log.URL)
 		if err != nil {
-			tmpSelection.logValue = "[unavailable] " + log.URL
+			tmp.status = "unavailable"
 		}
-		tmpSelection.logSize = size
-		fmt.Println(tmpSelection.selectionNumber, tmpSelection.logValue, tmpSelection.logSize)
-		collection = append(collection, tmpSelection)
+		tmp.logSize = size
+		s := fmt.Sprintf("%d\t%d\t%s\t%s\t", tmp.selectionNumber, tmp.logSize, tmp. status, tmp.logValue)
+		fmt.Fprintln(writer, s)
+		writer.Flush()
+		collection = append(collection, tmp)
 	}
-	fmt.Printf("Select log (default 'ct.googleapis.com/pilot/') [all | 1-%d]:", maxSelection)
+	readSelection(collection, maxSelection)
 }
 
-func readSelection(selection int) {
+// helper function to read user supplied answer and start ct log download
+func readSelection(data[]logSelection , maxSelection int) {
+	selectionRange := makeRange(0, maxSelection)
+	reader := bufio.NewReader(os.Stdin)
+	fmt.Printf("Select log (default 'ct.googleapis.com/pilot/') [all | 0-%d]:", maxSelection)
+	text, _ := reader.ReadString('\n')
+	text = strings.Replace(text, "\r\n", "", -1)
+	if text == "" {
+		// download default log
+		grabCTLog("https://ct.googleapis.com/pilot/")
+	} else if text == "all"{
+		// download data for all logs
+		downloadCTLogs()
+	} else {
+		selection, err := strconv.Atoi(text)
+		if err != nil {
+			r.Printf("answer is invalid\n")
+			readSelection(data, maxSelection)
+		}
+		if contains (selectionRange, selection){
+			// select url from data supplied
+			for i := range(data){
+				log := data[i]
+				if log.selectionNumber == selection {
+					if log.status != "unavailable"{
+						grabCTLog("https://" + log.logValue)
+					} else {
+						r.Printf("log is unavailable\n")
+						readSelection(data, maxSelection)
+					}
+				}
+			}
+		} else {
+			r.Printf("select between 0-%d\n", maxSelection)
+			readSelection(data, maxSelection)
+		}
+	}
+	// ask user if he wants to download another round
+	g.Printf("\rProgress: %s                    \n", "done")
+	readSelection(data, maxSelection)
+}
 
+// helper function to check membership of a number in a slice
+func contains(s []int, e int) bool {
+    for _, a := range s {
+        if a == e {
+            return true
+        }
+    }
+    return false
+}
+
+// helper function to make a slice of numbers
+func makeRange(min, max int) []int {
+    a := make([]int, max-min+1)
+    for i := range a {
+        a[i] = min + i
+    }
+    return a
 }
 
 // returns a list of all known certificate transparency log URLs
@@ -319,8 +385,11 @@ func downloadCTLogs() {
 // returns size of the certificate transparency log
 func grabLogSize(URL string) (uint64, error) {
 	var sthURL = URL + "ct/v1/get-sth"
-	// res := grabURL(sthURL)
-	resp, err := http.Get(sthURL)
+	timeout := time.Duration(2 * time.Second)
+	client := http.Client{
+		Timeout: timeout,
+	}
+	resp, err := client.Get(sthURL)
 	if err != nil {
 		return uint64(0), err
 	}
@@ -336,8 +405,10 @@ func grabLogSize(URL string) (uint64, error) {
 
 // grabs subdomains from the supplied certificate transparency log
 func grabCTLog(inputLog string) {
+	y.EnableColor()
 	y.Printf("Downloading %s\n", inputLog)
-	logCount = 1
+	y.DisableColor()
+	logCount = 0
 	size, err := grabLogSize(inputLog)
 	logSize = size
 	logClient, err := client.New(inputLog, &http.Client{
@@ -417,10 +488,8 @@ func setup() {
 	flag.Parse()
 
 	if *store {
-		// readDatabase()
 		// downloadCTLogs()
 		printKnownLogs()
-		// grabCTLog("https://ct.googleapis.com/logs/argon2021/")
 		os.Exit(1)
 	}
 

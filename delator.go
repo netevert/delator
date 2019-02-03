@@ -10,9 +10,9 @@ import (
 	ct "github.com/google/certificate-transparency-go"
 	"github.com/google/certificate-transparency-go/client"
 	"github.com/google/certificate-transparency-go/jsonclient"
+	"github.com/google/certificate-transparency-go/loglist"
 	"github.com/google/certificate-transparency-go/scanner"
 	"github.com/google/certificate-transparency-go/x509"
-	"github.com/google/certificate-transparency-go/loglist"
 	"github.com/google/certificate-transparency-go/x509util"
 	_ "github.com/mattn/go-sqlite3"
 	"github.com/tcnksm/go-latest"
@@ -33,6 +33,8 @@ var (
 		Owner:             "netevert",
 		Repository:        "delator",
 		FixVersionStrFunc: latest.DeleteFrontV()}
+	logCount        = 0
+	logSize         = uint64(0)
 	g               = color.New(color.FgHiGreen)
 	y               = color.New(color.FgHiYellow)
 	r               = color.New(color.FgHiRed)
@@ -54,17 +56,23 @@ var (
 
 type data struct {
 	IssuerCaID        int    `json:"issuer_ca_id"`
-	IssuerName         string `json:"issuer_name"`
-	NameValue          string `json:"name_value"`
+	IssuerName        string `json:"issuer_name"`
+	NameValue         string `json:"name_value"`
 	MinCertID         int    `json:"min_cert_id"`
 	MinEntryTimestamp string `json:"min_entry_timestamp"`
-	NotAfter           string `json:"not_after"`
-	NotBefore          string `json:"not_before"`
+	NotAfter          string `json:"not_after"`
+	NotBefore         string `json:"not_before"`
 }
 
 type record struct {
 	Subdomain string `json:"subdomain"`
 	A         string `json:"a_record"`
+}
+
+type logSelection struct {
+	selectionNumber int
+	logValue string
+	logSize uint64
 }
 
 // helper function to print errors and exit
@@ -198,7 +206,6 @@ func sanitizedInput(input string) (sanitizedDomain string) {
 
 // dumps retrieved common name into delator database
 func dumpData(CommonName string) {
-	fmt.Printf("%s\n", CommonName)
 	database, _ := sql.Open("sqlite3", "./data.db")
 	statement, _ := database.Prepare("CREATE TABLE IF NOT EXISTS subdomains (id INTEGER PRIMARY KEY, subdomain TEXT)")
 	statement.Exec()
@@ -210,6 +217,8 @@ func dumpData(CommonName string) {
 // Prints out a short bit of info about |cert|, found at |index| in the
 // specified log
 func logCertInfo(entry *ct.RawLogEntry) {
+	logCount++
+	fmt.Printf("\rProgress: %d/%d", logCount, logSize)
 	parsedEntry, err := entry.ToLogEntry()
 	if x509.IsFatal(err) || parsedEntry.X509Cert == nil {
 		fmt.Printf("Process cert at index %d: <unparsed: %v>", entry.Index, err)
@@ -224,6 +233,8 @@ func logCertInfo(entry *ct.RawLogEntry) {
 // Prints out a short bit of info about |precert|, found at |index| in the
 // specified log
 func logPrecertInfo(entry *ct.RawLogEntry) {
+	logCount++
+	fmt.Printf("\rProgress: %d/%d", logCount, logSize)
 	parsedEntry, err := entry.ToLogEntry()
 	if x509.IsFatal(err) || parsedEntry.Precert == nil {
 		fmt.Printf("Process precert at index %d: <unparsed: %v>", entry.Index, err)
@@ -244,7 +255,7 @@ func createRegexes(regexValue string) (*regexp.Regexp, *regexp.Regexp) {
 }
 
 // fetches certificate transparency json data
-func grabKnownLogs(URL string) (*loglist.LogList) {
+func grabKnownLogs(URL string) *loglist.LogList {
 	client := &http.Client{Timeout: time.Second * 10}
 
 	llData, err := x509util.ReadFileOrURL(URL, client)
@@ -260,12 +271,30 @@ func grabKnownLogs(URL string) (*loglist.LogList) {
 }
 
 // prints a list of all known certificate transparency logs
-func printKnownLogs(){
+func printKnownLogs() {
+	fmt.Println("Pulling list of known logs")
+	var collection []logSelection
+	var maxSelection = 0
 	logData := grabKnownLogs("https://www.gstatic.com/ct/log_list/log_list.json")
 	for i := range logData.Logs {
+		maxSelection++
+		var tmpSelection logSelection
 		log := logData.Logs[i]
-		fmt.Println(log.URL)
+		tmpSelection.selectionNumber = i
+		tmpSelection.logValue = log.URL
+		size, err := grabLogSize("https://" + log.URL)
+		if err != nil {
+			tmpSelection.logValue = "[unavailable] " + log.URL
+		}
+		tmpSelection.logSize = size
+		fmt.Println(tmpSelection.selectionNumber, tmpSelection.logValue, tmpSelection.logSize)
+		collection = append(collection, tmpSelection)
 	}
+	fmt.Printf("Select log (default 'ct.googleapis.com/pilot/') [all | 1-%d]:", maxSelection)
+}
+
+func readSelection(selection int) {
+
 }
 
 // returns a list of all known certificate transparency log URLs
@@ -280,16 +309,37 @@ func returnKnownLogURLS() []string {
 }
 
 // downloads certificate transparency logs locally
-func downloadCTLogs(){
+func downloadCTLogs() {
 	logs := returnKnownLogURLS()
 	for i := range logs {
-		fmt.Printf("\nDownloading %s\n", logs[i])
 		grabCTLog("https://" + logs[i])
 	}
 }
 
+// returns size of the certificate transparency log
+func grabLogSize(URL string) (uint64, error) {
+	var sthURL = URL + "ct/v1/get-sth"
+	// res := grabURL(sthURL)
+	resp, err := http.Get(sthURL)
+	if err != nil {
+		return uint64(0), err
+	}
+	body, err := ioutil.ReadAll(resp.Body)
+	if err != nil {
+		return uint64(0), err
+	}
+	
+	var sth ct.SignedTreeHead
+	json.Unmarshal([]byte(body), &sth)
+	return sth.TreeSize, err
+}
+
 // grabs subdomains from the supplied certificate transparency log
 func grabCTLog(inputLog string) {
+	y.Printf("Downloading %s\n", inputLog)
+	logCount = 1
+	size, err := grabLogSize(inputLog)
+	logSize = size
 	logClient, err := client.New(inputLog, &http.Client{
 		Timeout: 10 * time.Second,
 		Transport: &http.Transport{
@@ -323,7 +373,7 @@ func grabCTLog(inputLog string) {
 			EndIndex:      0,
 		},
 		Matcher:    matcher,
-		NumWorkers: 2,
+		NumWorkers: 8,
 	}
 	scanner := scanner.NewScanner(logClient, opts)
 
@@ -346,7 +396,7 @@ func readDatabase() {
 		if err != nil {
 			fmt.Println(err)
 		}
-        fmt.Println(subdomain)
+		fmt.Println(subdomain)
 	}
 	err = rows.Err()
 	if err != nil {
@@ -366,11 +416,11 @@ func setup() {
 
 	flag.Parse()
 
-	if *store{
-		readDatabase()
+	if *store {
+		// readDatabase()
 		// downloadCTLogs()
-		// printKnownLogs()
-		// grabCTLog("https://ct.googleapis.com/aviator/")
+		printKnownLogs()
+		// grabCTLog("https://ct.googleapis.com/logs/argon2021/")
 		os.Exit(1)
 	}
 

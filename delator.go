@@ -43,11 +43,13 @@ var (
 	r               = color.New(color.FgHiRed)
 	writer          = new(tabwriter.Writer)
 	wg              = &sync.WaitGroup{}
-	domain          = flag.String("d", "", "input domain")
-	resolve         = flag.Bool("a", false, "view A record")
-	store           = flag.Bool("s", false, "store ct logs")
-	ver             = flag.Bool("c", false, "check version")
-	utilDescription = "delator -d domain [-acs]"
+	newSet 			= flag.NewFlagSet("newSet", flag.ContinueOnError)
+	domain          = newSet.String("d", "", "input domain")
+	source          = newSet.String("s", "", "search source")
+	resolve         = newSet.Bool("a", false, "view A record")
+	store           = newSet.Bool("p", false, "pull ct logs")
+	ver             = newSet.Bool("v", false, "check version")
+	utilDescription = "delator -d <domain> -s <source> {db|net} [-acv]"
 	myClient        = &http.Client{Timeout: 10 * time.Second}
 	appVersion      = "1.2.0"
 	banner          = `
@@ -201,7 +203,7 @@ func sanitizedInput(input string) (sanitizedDomain string) {
 	if !validateDomainName(input) {
 		r.Printf("\nplease supply a valid domain\n\n")
 		fmt.Println(utilDescription)
-		flag.PrintDefaults()
+		newSet.PrintDefaults()
 		os.Exit(1)
 	}
 	sanitizedDomain, _ = publicsuffix.EffectiveTLDPlusOne(input)
@@ -275,7 +277,7 @@ func grabKnownLogs(URL string) *loglist.LogList {
 }
 
 // prints a list of all known certificate transparency logs
-func printKnownLogs() {
+func storeKnownLogs() {
 	writer.Init(os.Stdout, 10, 8, 0, '\t', tabwriter.AlignRight)
 	fmt.Fprintln(writer, "Selection\tLog size\tStatus\tLog URL\t")
 	fmt.Fprintln(writer, "---------\t--------\t------\t-------\t")
@@ -476,20 +478,44 @@ func readDatabase() {
 	database.Close()
 }
 
+// reads subdomains from database
+func queryDatabase(query string) {
+	var id int
+	var subdomain string
+	database, _ := sql.Open("sqlite3", "./data.db")
+	rows, err := database.Query(fmt.Sprintf("SELECT id, subdomain FROM subdomains WHERE subdomain LIKE '%%%s%%'", query))
+	if err != nil {
+		fmt.Println(err)
+	}
+	defer rows.Close()
+	for rows.Next() {
+		err := rows.Scan(&id, &subdomain)
+		if err != nil {
+			fmt.Println(err)
+		}
+		fmt.Println(subdomain)
+	}
+	err = rows.Err()
+	if err != nil {
+		fmt.Println(err)
+	}
+	database.Close()
+}
+
 // sets up command-line arguments and default responses
 func setup() {
-	flag.Usage = func() {
+	newSet.Usage = func() {
 		g.Printf(banner)
 		y.Printf("\nwritten & maintained with ♥ by NetEvert\n\n")
 		fmt.Println(utilDescription)
-		flag.PrintDefaults()
+		newSet.PrintDefaults()
+		os.Exit(1)
 	}
-
-	flag.Parse()
+	
+	newSet.Parse(os.Args[1:])
 
 	if *store {
-		// downloadCTLogs()
-		printKnownLogs()
+		storeKnownLogs()
 		os.Exit(1)
 	}
 
@@ -506,7 +532,14 @@ func setup() {
 	if *domain == "" {
 		r.Printf("\nplease supply a domain\n\n")
 		fmt.Println(utilDescription)
-		flag.PrintDefaults()
+		newSet.PrintDefaults()
+		os.Exit(1)
+	}
+
+	if *source == "" {
+		r.Printf("\nplease supply a source {db|all}\n\n")
+		fmt.Println(utilDescription)
+		newSet.PrintDefaults()
 		os.Exit(1)
 	}
 }
@@ -514,11 +547,25 @@ func setup() {
 // main program entry point
 func main() {
 	setup()
-	sanitizedDomain := sanitizedInput(*domain)
-	subdomains := fetchData(fmt.Sprintf("https://crt.sh/?q=%s&output=json", sanitizedDomain))
-	if *resolve {
-		printResults(extractSubdomains(subdomains))
-	} else {
-		printData(subdomains)
+	if *source == "net" {
+		sanitizedDomain := sanitizedInput(*domain)
+		subdomains := fetchData(fmt.Sprintf("https://crt.sh/?q=%s&output=json", sanitizedDomain))
+		if *resolve {
+			printResults(extractSubdomains(subdomains))
+			} else {
+				printData(subdomains)
+			}
+		os.Exit(1)
+		}
+	if *source == "db" {
+		sanitizedDomain := sanitizedInput(*domain)
+		queryDatabase(sanitizedDomain)
+		os.Exit(1)
+	}
+	if (*source != "net" || *source != "db") {
+		r.Printf("\ninvalid source [db|all]\n\n")
+		fmt.Println(utilDescription)
+		newSet.PrintDefaults()
+		os.Exit(1)
 	}
 }

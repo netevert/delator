@@ -43,7 +43,7 @@ var (
 	r               = color.New(color.FgHiRed)
 	writer          = new(tabwriter.Writer)
 	wg              = &sync.WaitGroup{}
-	newSet 			= flag.NewFlagSet("newSet", flag.ContinueOnError)
+	newSet          = flag.NewFlagSet("newSet", flag.ContinueOnError)
 	domain          = newSet.String("d", "", "input domain")
 	source          = newSet.String("s", "", "search source")
 	resolve         = newSet.Bool("a", false, "view A record")
@@ -76,9 +76,9 @@ type record struct {
 
 type logSelection struct {
 	selectionNumber int
-	logValue string
-	logSize uint64
-	status string
+	logValue        string
+	logSize         uint64
+	status          string
 }
 
 // helper function to print errors and exit
@@ -296,7 +296,7 @@ func storeKnownLogs() {
 			tmp.status = "unavailable"
 		}
 		tmp.logSize = size
-		s := fmt.Sprintf("%d\t%d\t%s\t%s\t", tmp.selectionNumber, tmp.logSize, tmp. status, tmp.logValue)
+		s := fmt.Sprintf("%d\t%d\t%s\t%s\t", tmp.selectionNumber, tmp.logSize, tmp.status, tmp.logValue)
 		fmt.Fprintln(writer, s)
 		writer.Flush()
 		collection = append(collection, tmp)
@@ -305,7 +305,7 @@ func storeKnownLogs() {
 }
 
 // helper function to read user supplied answer and start ct log download
-func readSelection(data[]logSelection , maxSelection int) {
+func readSelection(data []logSelection, maxSelection int) {
 	selectionRange := makeRange(0, maxSelection)
 	reader := bufio.NewReader(os.Stdin)
 	fmt.Printf("Select log (default 'ct.googleapis.com/pilot/') [all | 0-%d]:", maxSelection)
@@ -314,7 +314,7 @@ func readSelection(data[]logSelection , maxSelection int) {
 	if text == "" {
 		// download default log
 		grabCTLog("https://ct.googleapis.com/pilot/")
-	} else if text == "all"{
+	} else if text == "all" {
 		// download data for all logs
 		downloadCTLogs()
 	} else {
@@ -323,12 +323,12 @@ func readSelection(data[]logSelection , maxSelection int) {
 			r.Printf("answer is invalid\n")
 			readSelection(data, maxSelection)
 		}
-		if contains (selectionRange, selection){
+		if contains(selectionRange, selection) {
 			// select url from data supplied
-			for i := range(data){
+			for i := range data {
 				log := data[i]
 				if log.selectionNumber == selection {
-					if log.status != "unavailable"{
+					if log.status != "unavailable" {
 						grabCTLog("https://" + log.logValue)
 					} else {
 						r.Printf("log is unavailable\n")
@@ -348,21 +348,21 @@ func readSelection(data[]logSelection , maxSelection int) {
 
 // helper function to check membership of a number in a slice
 func contains(s []int, e int) bool {
-    for _, a := range s {
-        if a == e {
-            return true
-        }
-    }
-    return false
+	for _, a := range s {
+		if a == e {
+			return true
+		}
+	}
+	return false
 }
 
 // helper function to make a slice of numbers
 func makeRange(min, max int) []int {
-    a := make([]int, max-min+1)
-    for i := range a {
-        a[i] = min + i
-    }
-    return a
+	a := make([]int, max-min+1)
+	for i := range a {
+		a[i] = min + i
+	}
+	return a
 }
 
 // returns a list of all known certificate transparency log URLs
@@ -399,7 +399,7 @@ func grabLogSize(URL string) (uint64, error) {
 	if err != nil {
 		return uint64(0), err
 	}
-	
+
 	var sth ct.SignedTreeHead
 	json.Unmarshal([]byte(body), &sth)
 	return sth.TreeSize, err
@@ -441,12 +441,12 @@ func grabCTLog(inputLog string) {
 	opts := scanner.ScannerOptions{
 		FetcherOptions: scanner.FetcherOptions{
 			BatchSize:     1000,
-			ParallelFetch: 4,
+			ParallelFetch: 12,
 			StartIndex:    0,
 			EndIndex:      0,
 		},
 		Matcher:    matcher,
-		NumWorkers: 8,
+		NumWorkers: 12,
 	}
 	scanner := scanner.NewScanner(logClient, opts)
 
@@ -493,7 +493,7 @@ func queryDatabase(query string) {
 		if err != nil {
 			fmt.Println(err)
 		}
-		fmt.Println(subdomain)
+		y.Printf(subdomain + "\n")
 	}
 	err = rows.Err()
 	if err != nil {
@@ -511,8 +511,11 @@ func setup() {
 		newSet.PrintDefaults()
 		os.Exit(1)
 	}
-	
+
 	newSet.Parse(os.Args[1:])
+
+	// workaround to suppress glog errors, as per https://github.com/kubernetes/kubernetes/issues/17162#issuecomment-225596212
+	flag.CommandLine.Parse([]string{})
 
 	if *store {
 		storeKnownLogs()
@@ -552,17 +555,17 @@ func main() {
 		subdomains := fetchData(fmt.Sprintf("https://crt.sh/?q=%s&output=json", sanitizedDomain))
 		if *resolve {
 			printResults(extractSubdomains(subdomains))
-			} else {
-				printData(subdomains)
-			}
-		os.Exit(1)
+		} else {
+			printData(subdomains)
 		}
+		os.Exit(1)
+	}
 	if *source == "db" {
 		sanitizedDomain := sanitizedInput(*domain)
 		queryDatabase(sanitizedDomain)
 		os.Exit(1)
 	}
-	if (*source != "net" || *source != "db") {
+	if *source != "net" || *source != "db" {
 		r.Printf("\ninvalid source [db|all]\n\n")
 		fmt.Println(utilDescription)
 		newSet.PrintDefaults()

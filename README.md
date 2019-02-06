@@ -13,11 +13,11 @@ DELATOR (*lat.* **informer**) is a tool to perform subdomain enumeration and ini
 
 Using DELATOR is as simple as running:
 
-    ./delator -d facebook.com
+    ./delator -d facebook.com -s db
 
 DELATOR can also be instructed to resolve any subdomains found, giving a first indication of any live sites:
 
-    ./delator -d facebook.com -a
+    ./delator -d facebook.com -s net -a
 
 Installation
 ============
@@ -46,5 +46,3 @@ Like it?
 =========
 
  **DELATOR is under active development** so make sure you check back frequently for new releases. However if you like the tool please consider contributing.
-
- A particular issue with DELATOR and [CTFR](https://github.com/UnaPibaGeek/ctfr) is that both tools rely entirely on [Comodo's Certificate Search API](https://crt.sh/). If the API is discontinued the tools will cease to work. A [new version](https://github.com/netevert/delator/tree/v.1.2.0) of DELATOR is currently in the works that will allow for the download of subdomains directly from certificate transparency logs and storage in a local database. This would allow for later scanning for subdomains on demand and give DELATOR the ability to retain it's usefulness should Comodo's API disappear.

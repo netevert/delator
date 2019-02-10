@@ -48,10 +48,10 @@ var (
 	source          = newSet.String("s", "", "search source")
 	resolve         = newSet.Bool("a", false, "view A record")
 	store           = newSet.Bool("p", false, "pull ct logs")
-	ver             = newSet.Bool("v", false, "check version")
-	utilDescription = "delator -d <domain> -s <source> {db|net} [-acv]"
+	ver             = newSet.Bool("v", false, "version check")
+	utilDescription = "delator -d <domain> -s <source> {db|crt} [-apv]"
 	myClient        = &http.Client{Timeout: 10 * time.Second}
-	appVersion      = "1.2.0"
+	appVersion      = "1.2.1"
 	banner          = `
 8"""8 8""" 8    8"""8 ""8"" 8""88 8""8  
 8e  8 8eee 8e   8eee8   8e  8   8 8ee8e
@@ -220,8 +220,7 @@ func dumpData(CommonName string) {
 	database.Close()
 }
 
-// Prints out a short bit of info about |cert|, found at |index| in the
-// specified log
+// dumps cert information into local database
 func logCertInfo(entry *ct.RawLogEntry) {
 	logCount++
 	fmt.Printf("\rProgress: %d/%d", logCount, logSize)
@@ -236,8 +235,7 @@ func logCertInfo(entry *ct.RawLogEntry) {
 	}
 }
 
-// Prints out a short bit of info about |precert|, found at |index| in the
-// specified log
+// dumps precert information into local database
 func logPrecertInfo(entry *ct.RawLogEntry) {
 	logCount++
 	fmt.Printf("\rProgress: %d/%d", logCount, logSize)
@@ -252,6 +250,7 @@ func logPrecertInfo(entry *ct.RawLogEntry) {
 	}
 }
 
+// helper function to create regexes
 func createRegexes(regexValue string) (*regexp.Regexp, *regexp.Regexp) {
 	// Make a regex matcher
 	var certRegex *regexp.Regexp
@@ -454,6 +453,16 @@ func grabCTLog(inputLog string) {
 	scanner.Scan(ctx, logCertInfo, logPrecertInfo)
 }
 
+// checks if local sqlite database exists
+func databaseCheck() {
+	if _, err := os.Stat("data.db"); err == nil {
+		// do nothing, carry on
+	  } else if os.IsNotExist(err) {
+		r.Printf("database missing, create one\n")
+		storeKnownLogs()
+	  }
+}
+
 // reads subdomains from database
 func readDatabase() {
 	var id int
@@ -479,10 +488,14 @@ func readDatabase() {
 }
 
 // reads subdomains from database
-func queryDatabase(query string) {
+func queryDatabase(query string) []string {
+	databaseCheck()
+	var subdomains []string
 	var id int
 	var subdomain string
 	database, _ := sql.Open("sqlite3", "./data.db")
+	defer database.Close()
+
 	rows, err := database.Query(fmt.Sprintf("SELECT id, subdomain FROM subdomains WHERE subdomain LIKE '%%%s%%'", query))
 	if err != nil {
 		fmt.Println(err)
@@ -493,13 +506,23 @@ func queryDatabase(query string) {
 		if err != nil {
 			fmt.Println(err)
 		}
-		y.Printf(subdomain + "\n")
+		subdomains = append(subdomains, subdomain)
 	}
 	err = rows.Err()
 	if err != nil {
 		fmt.Println(err)
 	}
-	database.Close()
+	return subdomains
+}
+
+// converts a list of subdomains into data struct objects
+func NormaliseDBData(inputData []string) (outputData []data) {
+	for i := range(inputData) {
+		var tmpData data
+		tmpData.NameValue = inputData[i]
+		outputData = append(outputData, tmpData)
+	}
+	return outputData
 }
 
 // sets up command-line arguments and default responses
@@ -517,11 +540,13 @@ func setup() {
 	// workaround to suppress glog errors, as per https://github.com/kubernetes/kubernetes/issues/17162#issuecomment-225596212
 	flag.CommandLine.Parse([]string{})
 
+	// check if user wants to download CT logs locally
 	if *store {
 		storeKnownLogs()
 		os.Exit(1)
 	}
 
+	// check if user wants to run version check
 	if *ver {
 		y.Printf("DELATOR")
 		fmt.Printf(" v.%s\n", appVersion)
@@ -532,6 +557,7 @@ func setup() {
 		os.Exit(1)
 	}
 
+	// check if user has supplied domain
 	if *domain == "" {
 		r.Printf("\nplease supply a domain\n\n")
 		fmt.Println(utilDescription)
@@ -539,8 +565,9 @@ func setup() {
 		os.Exit(1)
 	}
 
+	// check if user has supplied source
 	if *source == "" {
-		r.Printf("\nplease supply a source {db|all}\n\n")
+		r.Printf("\nplease supply a source {db|crt}\n\n")
 		fmt.Println(utilDescription)
 		newSet.PrintDefaults()
 		os.Exit(1)
@@ -550,7 +577,9 @@ func setup() {
 // main program entry point
 func main() {
 	setup()
-	if *source == "net" {
+
+	// mine data from crt.sh
+	if *source == "crt" {
 		sanitizedDomain := sanitizedInput(*domain)
 		subdomains := fetchData(fmt.Sprintf("https://crt.sh/?q=%s&output=json", sanitizedDomain))
 		if *resolve {
@@ -560,13 +589,21 @@ func main() {
 		}
 		os.Exit(1)
 	}
+
+	// mine data from local database
 	if *source == "db" {
 		sanitizedDomain := sanitizedInput(*domain)
-		queryDatabase(sanitizedDomain)
+		if *resolve {
+			printResults(queryDatabase(sanitizedDomain))
+		} else {
+			printData(NormaliseDBData(queryDatabase(sanitizedDomain)))
+		}
 		os.Exit(1)
 	}
-	if *source != "net" || *source != "db" {
-		r.Printf("\ninvalid source [db|all]\n\n")
+
+	// Check if user has supplied the correct source
+	if *source != "crt" || *source != "db" {
+		r.Printf("\ninvalid source [db|crt]\n\n")
 		fmt.Println(utilDescription)
 		newSet.PrintDefaults()
 		os.Exit(1)

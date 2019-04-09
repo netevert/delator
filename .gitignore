@@ -4,3 +4,5 @@
 !.vscode/launch.json
 !.vscode/extensions.json
 data.db
+delator.exe
+result.csv

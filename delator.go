@@ -5,6 +5,7 @@ import (
 	"context"
 	"database/sql"
 	"encoding/json"
+	"encoding/csv"
 	"flag"
 	"fmt"
 	"github.com/fatih/color"
@@ -49,9 +50,10 @@ var (
 	resolve         = newSet.Bool("a", false, "view A record")
 	store           = newSet.Bool("p", false, "pull ct logs")
 	ver             = newSet.Bool("v", false, "version check")
+	outcsv          = newSet.Bool("csv", false, "output to csv")
 	utilDescription = "delator -d <domain> -s <source> {db|crt} [-apv]"
 	myClient        = &http.Client{Timeout: 10 * time.Second}
-	appVersion      = "1.2.1"
+	appVersion      = "1.2.2"
 	banner          = `
 8"""8 8""" 8    8"""8 ""8"" 8""88 8""8  
 8e  8 8eee 8e   8eee8   8e  8   8 8ee8e
@@ -107,6 +109,9 @@ func grabURL(URL string) (resp *http.Response) {
 
 // fetches certificate transparency json data
 func fetchData(URL string) []data {
+	if *outcsv != false {
+		y.Printf("\r%s", "writing to csv")
+	}
 	res := grabURL(URL)
 	body, err := ioutil.ReadAll(res.Body)
 	if err != nil {
@@ -118,13 +123,73 @@ func fetchData(URL string) []data {
 	return keys
 }
 
-// deduplicates and prints subdomains
+// reards from  a record type channel and prints to csv
+func writeToCsv(out chan record){
+	file, err := os.Create("result.csv")
+		if err != nil {
+			fmt.Println(err)
+		}
+		defer file.Close()
+		writer := csv.NewWriter(file)
+		defer writer.Flush()
+		for r := range out {
+			var tmp = []string{r.Subdomain, r.A}
+			err := writer.Write(tmp)
+			if err != nil {
+				fmt.Println(err)
+			}
+		}
+	g.Printf("\r%s                    \n", "done")
+}
+
+// deduplicates and prints subdomains, if csv output is selected the
+// method writes to csv
 func printData(Data []data) {
-	counter := make(map[string]int)
-	for _, i := range Data {
-		counter[i.NameValue]++
-		if counter[i.NameValue] == 1 {
-			y.Println(i.NameValue)
+	if *outcsv != false {
+		counter := make(map[string]int)
+		file, err := os.Create("result.csv")
+		if err != nil {
+			fmt.Println(err)
+		}
+		defer file.Close()
+		writer := csv.NewWriter(file)
+		defer writer.Flush()
+		for _, i := range Data {
+			counter[i.NameValue]++
+			if counter[i.NameValue] == 1 {
+				var tmp = []string{i.NameValue}
+				err := writer.Write(tmp)
+				if err != nil {
+					fmt.Println(err)
+				}
+			}
+		}
+		g.Printf("\r%s                    \n", "done")
+	}
+	if *outcsv == false {
+		counter := make(map[string]int)
+		for _, i := range Data {
+			counter[i.NameValue]++
+			if counter[i.NameValue] == 1 {
+				y.Println(i.NameValue)
+			}
+		}
+	}
+}
+
+// helper function to run lookups and print results
+func printResults(subdomains []string) {
+	out := make(chan record)
+	writer.Init(os.Stdout, 14, 8, 0, '\t', tabwriter.DiscardEmptyColumns)
+	runConcurrentLookups(subdomains, *resolve, out)
+	go monitorWorker(wg, out)
+	if *outcsv != false {
+		writeToCsv(out)
+	}
+	if *outcsv == false {
+		for r := range out {
+			fmt.Fprintln(writer, r.A+"\t"+r.Subdomain+"\t")
+			writer.Flush()
 		}
 	}
 }
@@ -184,18 +249,6 @@ func runConcurrentLookups(subdomains []string, resolve bool, out chan<- record) 
 func monitorWorker(wg *sync.WaitGroup, channel chan record) {
 	wg.Wait()
 	close(channel)
-}
-
-// helper function to run lookups and print results
-func printResults(subdomains []string) {
-	out := make(chan record)
-	writer.Init(os.Stdout, 14, 8, 0, '\t', tabwriter.DiscardEmptyColumns)
-	runConcurrentLookups(subdomains, *resolve, out)
-	go monitorWorker(wg, out)
-	for r := range out {
-		fmt.Fprintln(writer, r.A+"\t"+r.Subdomain+"\t")
-		writer.Flush()
-	}
 }
 
 // sanitizes domain inputs
@@ -490,6 +543,9 @@ func readDatabase() {
 // reads subdomains from database
 func queryDatabase(query string) []string {
 	databaseCheck()
+	if *outcsv != false {
+		y.Printf("\r%s", "writing to csv")
+	}
 	var subdomains []string
 	var id int
 	var subdomain string
@@ -516,7 +572,7 @@ func queryDatabase(query string) []string {
 }
 
 // converts a list of subdomains into data struct objects
-func NormaliseDBData(inputData []string) (outputData []data) {
+func normaliseDBData(inputData []string) (outputData []data) {
 	for i := range(inputData) {
 		var tmpData data
 		tmpData.NameValue = inputData[i]
@@ -596,7 +652,7 @@ func main() {
 		if *resolve {
 			printResults(queryDatabase(sanitizedDomain))
 		} else {
-			printData(NormaliseDBData(queryDatabase(sanitizedDomain)))
+			printData(normaliseDBData(queryDatabase(sanitizedDomain)))
 		}
 		os.Exit(1)
 	}

@@ -8,7 +8,6 @@ import (
 	"encoding/csv"
 	"flag"
 	"fmt"
-	"github.com/fatih/color"
 	ct "github.com/google/certificate-transparency-go"
 	"github.com/google/certificate-transparency-go/client"
 	"github.com/google/certificate-transparency-go/jsonclient"
@@ -39,9 +38,6 @@ var (
 		FixVersionStrFunc: latest.DeleteFrontV()}
 	logCount        = 0
 	logSize         = uint64(0)
-	g               = color.New(color.FgHiGreen)
-	y               = color.New(color.FgHiYellow)
-	r               = color.New(color.FgHiRed)
 	writer          = new(tabwriter.Writer)
 	wg              = &sync.WaitGroup{}
 	newSet          = flag.NewFlagSet("newSet", flag.ContinueOnError)
@@ -51,7 +47,7 @@ var (
 	store           = newSet.Bool("p", false, "pull ct logs")
 	ver             = newSet.Bool("v", false, "version check")
 	outcsv          = newSet.Bool("csv", false, "output to csv")
-	utilDescription = "delator -d <domain> -s <source> {db|crt} [-apv]"
+	utilDescription = "delator -d <domain> -s <source> {db|crt} [-apv] -csv"
 	myClient        = &http.Client{Timeout: 10 * time.Second}
 	appVersion      = "1.2.2"
 	banner          = `
@@ -110,7 +106,7 @@ func grabURL(URL string) (resp *http.Response) {
 // fetches certificate transparency json data
 func fetchData(URL string) []data {
 	if *outcsv != false {
-		y.Printf("\r%s", "writing to csv")
+		fmt.Printf("\r%s", "writing to csv")
 	}
 	res := grabURL(URL)
 	body, err := ioutil.ReadAll(res.Body)
@@ -139,7 +135,7 @@ func writeToCsv(out chan record){
 				fmt.Println(err)
 			}
 		}
-	g.Printf("\r%s                    \n", "done")
+	fmt.Printf("\r%s                    \n", "done")
 }
 
 // deduplicates and prints subdomains, if csv output is selected the
@@ -164,14 +160,14 @@ func printData(Data []data) {
 				}
 			}
 		}
-		g.Printf("\r%s                    \n", "done")
+		fmt.Printf("\r%s                    \n", "done")
 	}
 	if *outcsv == false {
 		counter := make(map[string]int)
 		for _, i := range Data {
 			counter[i.NameValue]++
 			if counter[i.NameValue] == 1 {
-				y.Println(i.NameValue)
+				fmt.Println(i.NameValue)
 			}
 		}
 	}
@@ -254,7 +250,7 @@ func monitorWorker(wg *sync.WaitGroup, channel chan record) {
 // sanitizes domain inputs
 func sanitizedInput(input string) (sanitizedDomain string) {
 	if !validateDomainName(input) {
-		r.Printf("\nplease supply a valid domain\n\n")
+		fmt.Printf("\nplease supply a valid domain\n\n")
 		fmt.Println(utilDescription)
 		newSet.PrintDefaults()
 		os.Exit(1)
@@ -372,7 +368,7 @@ func readSelection(data []logSelection, maxSelection int) {
 	} else {
 		selection, err := strconv.Atoi(text)
 		if err != nil {
-			r.Printf("answer is invalid\n")
+			fmt.Printf("answer is invalid\n")
 			readSelection(data, maxSelection)
 		}
 		if contains(selectionRange, selection) {
@@ -383,18 +379,18 @@ func readSelection(data []logSelection, maxSelection int) {
 					if log.status != "unavailable" {
 						grabCTLog("https://" + log.logValue)
 					} else {
-						r.Printf("log is unavailable\n")
+						fmt.Printf("log is unavailable\n")
 						readSelection(data, maxSelection)
 					}
 				}
 			}
 		} else {
-			r.Printf("select between 0-%d\n", maxSelection)
+			fmt.Printf("select between 0-%d\n", maxSelection)
 			readSelection(data, maxSelection)
 		}
 	}
 	// ask user if he wants to download another round
-	g.Printf("\rProgress: %s                    \n", "done")
+	fmt.Printf("\rProgress: %s                    \n", "done")
 	readSelection(data, maxSelection)
 }
 
@@ -459,9 +455,7 @@ func grabLogSize(URL string) (uint64, error) {
 
 // grabs subdomains from the supplied certificate transparency log
 func grabCTLog(inputLog string) {
-	y.EnableColor()
-	y.Printf("Downloading %s\n", inputLog)
-	y.DisableColor()
+	fmt.Printf("Downloading %s\n", inputLog)
 	logCount = 0
 	size, err := grabLogSize(inputLog)
 	logSize = size
@@ -511,7 +505,7 @@ func databaseCheck() {
 	if _, err := os.Stat("data.db"); err == nil {
 		// do nothing, carry on
 	  } else if os.IsNotExist(err) {
-		r.Printf("database missing, create one\n")
+		fmt.Printf("database missing, create one\n")
 		storeKnownLogs()
 	  }
 }
@@ -544,7 +538,7 @@ func readDatabase() {
 func queryDatabase(query string) []string {
 	databaseCheck()
 	if *outcsv != false {
-		y.Printf("\r%s", "writing to csv")
+		fmt.Printf("\r%s", "writing to csv")
 	}
 	var subdomains []string
 	var id int
@@ -584,8 +578,8 @@ func normaliseDBData(inputData []string) (outputData []data) {
 // sets up command-line arguments and default responses
 func setup() {
 	newSet.Usage = func() {
-		g.Printf(banner)
-		y.Printf("\nwritten & maintained with ♥ by NetEvert\n\n")
+		fmt.Printf(banner)
+		fmt.Printf("\nwritten & maintained with ♥ by NetEvert\n\n")
 		fmt.Println(utilDescription)
 		newSet.PrintDefaults()
 		os.Exit(1)
@@ -604,18 +598,18 @@ func setup() {
 
 	// check if user wants to run version check
 	if *ver {
-		y.Printf("DELATOR")
+		fmt.Printf("DELATOR")
 		fmt.Printf(" v.%s\n", appVersion)
 		res, _ := latest.Check(githubTag, appVersion)
 		if res.Outdated {
-			r.Printf("v.%s available\n", res.Current)
+			fmt.Printf("v.%s available\n", res.Current)
 		}
 		os.Exit(1)
 	}
 
 	// check if user has supplied domain
 	if *domain == "" {
-		r.Printf("\nplease supply a domain\n\n")
+		fmt.Printf("\nplease supply a domain\n\n")
 		fmt.Println(utilDescription)
 		newSet.PrintDefaults()
 		os.Exit(1)
@@ -623,7 +617,7 @@ func setup() {
 
 	// check if user has supplied source
 	if *source == "" {
-		r.Printf("\nplease supply a source {db|crt}\n\n")
+		fmt.Printf("\nplease supply a source {db|crt}\n\n")
 		fmt.Println(utilDescription)
 		newSet.PrintDefaults()
 		os.Exit(1)
@@ -659,7 +653,7 @@ func main() {
 
 	// Check if user has supplied the correct source
 	if *source != "crt" || *source != "db" {
-		r.Printf("\ninvalid source [db|crt]\n\n")
+		fmt.Printf("\ninvalid source [db|crt]\n\n")
 		fmt.Println(utilDescription)
 		newSet.PrintDefaults()
 		os.Exit(1)

@@ -5,20 +5,15 @@ builds:
   - binary: delator
     goos:
       - windows
-      - darwin
-      - linux
     goarch:
       - amd64
       - 386
-      - arm
-      - arm64
 # Archive customization
 archive:
   format: tar.gz
   replacements:
     amd64: 64-bit
     386: 32-bit
-    darwin: macOS
   format_overrides:
     - goos: windows
       format: zip

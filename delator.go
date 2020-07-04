@@ -24,6 +24,7 @@ import (
 	"net/url"
 	"os"
 	"regexp"
+	"sort"
 	"strconv"
 	"strings"
 	"sync"
@@ -49,7 +50,7 @@ var (
 	outcsv          = newSet.Bool("csv", false, "output to csv")
 	utilDescription = "delator -d <domain> -s <source> {db|crt} [-apv] -csv"
 	myClient        = &http.Client{Timeout: 10 * time.Second}
-	appVersion      = "1.2.2"
+	appVersion      = "1.2.3"
 	banner          = `
 8"""8 8""" 8    8"""8 ""8"" 8""88 8""8  
 8e  8 8eee 8e   8eee8   8e  8   8 8ee8e
@@ -77,6 +78,23 @@ type logSelection struct {
 	logValue        string
 	logSize         uint64
 	status          string
+}
+
+type sortByLength []string
+
+// Len implements Len of sort.Interface
+func (s sortByLength) Len() int {
+	return len(s)
+}
+
+// Swap implements Swap of sort.Interface
+func (s sortByLength) Swap(i, j int) {
+	s[i], s[j] = s[j], s[i]
+}
+
+// Less implements Less of sort.Interface
+func (s sortByLength) Less(i, j int) bool {
+	return len(s[i]) > len(s[j])
 }
 
 // helper function to print errors and exit
@@ -126,11 +144,11 @@ func writeToCsv(out chan record){
 			fmt.Println(err)
 		}
 		defer file.Close()
-		writer := csv.NewWriter(file)
-		defer writer.Flush()
+		csvwriter := csv.NewWriter(file)
+		defer csvwriter.Flush()
 		for r := range out {
 			var tmp = []string{r.Subdomain, r.A}
-			err := writer.Write(tmp)
+			err := csvwriter.Write(tmp)
 			if err != nil {
 				fmt.Println(err)
 			}
@@ -173,10 +191,23 @@ func printData(Data []data) {
 	}
 }
 
+// helper function to return the number of characters
+// in the longest string within an array. To be used
+// to calculate the minwidth for TabWriters 
+func getMinWidth(target_list []string) int {
+	// We sort it by length, descending
+	sort.Sort(sortByLength(target_list))
+
+	// The first element is sure to be the longest
+	longest := []string{target_list[0]}
+	return len(longest[0])
+
+}
+
 // helper function to run lookups and print results
 func printResults(subdomains []string) {
 	out := make(chan record)
-	writer.Init(os.Stdout, 14, 8, 0, '\t', tabwriter.DiscardEmptyColumns)
+	writer.Init(os.Stdout, getMinWidth(subdomains), 8, 0, '\t', tabwriter.DiscardEmptyColumns)
 	runConcurrentLookups(subdomains, *resolve, out)
 	go monitorWorker(wg, out)
 	if *outcsv != false {
@@ -184,7 +215,7 @@ func printResults(subdomains []string) {
 	}
 	if *outcsv == false {
 		for r := range out {
-			fmt.Fprintln(writer, r.A+"\t"+r.Subdomain+"\t")
+			fmt.Fprintln(writer, r.Subdomain + "\t" + r.A + "\t")
 			writer.Flush()
 		}
 	}
@@ -195,9 +226,12 @@ func extractSubdomains(Data []data) []string {
 	counter := make(map[string]int)
 	var subdomains []string
 	for _, i := range Data {
-		counter[i.NameValue]++
-		if counter[i.NameValue] == 1 {
-			subdomains = append(subdomains, i.NameValue)
+		tmp := strings.Split(i.NameValue, "\n")
+		for _, split_word := range tmp {
+			counter[split_word]++
+			if counter[split_word] == 1 {
+				subdomains = append(subdomains, split_word)
+			}
 		}
 	}
 	return subdomains
@@ -217,7 +251,6 @@ func aLookup(subdomain string) string {
 	ip, err := net.ResolveIPAddr("ip4", subdomain)
 	if err != nil {
 		return ""
-
 	}
 	return ip.String() // todo: fix to return only one IP
 }
@@ -458,6 +491,9 @@ func grabCTLog(inputLog string) {
 	fmt.Printf("Downloading %s\n", inputLog)
 	logCount = 0
 	size, err := grabLogSize(inputLog)
+	if err != nil {
+		printError("an error occurred")
+	}
 	logSize = size
 	logClient, err := client.New(inputLog, &http.Client{
 		Timeout: 10 * time.Second,
@@ -479,7 +515,6 @@ func grabCTLog(inputLog string) {
 	matcher, err := scanner.MatchSubjectRegex{
 		CertificateSubjectRegex:    certRegex,
 		PrecertificateSubjectRegex: precertRegex}, nil
-
 	if err != nil {
 		printError("an error occurred")
 	}

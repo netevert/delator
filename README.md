@@ -51,8 +51,3 @@ Versioning
 ==========
 
 This project adheres to [Semantic Versioning](https://semver.org/).
-
-Like it?
-=========
-
- **DELATOR is under active development** so make sure you check back frequently for new releases. If you like the tool please consider contributing.

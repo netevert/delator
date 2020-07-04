@@ -50,7 +50,7 @@ var (
 	outcsv          = newSet.Bool("csv", false, "output to csv")
 	utilDescription = "delator -d <domain> -s <source> {db|crt} [-apv] -csv"
 	myClient        = &http.Client{Timeout: 10 * time.Second}
-	appVersion      = "1.2.3"
+	appVersion      = "1.2.4"
 	banner          = `
 8"""8 8""" 8    8"""8 ""8"" 8""88 8""8  
 8e  8 8eee 8e   8eee8   8e  8   8 8ee8e

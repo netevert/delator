@@ -1,0 +1,2 @@
+38dc16c6f2bf2d976c6e82658fca0dab172a136324c1ba96e90d3c6eec1cfbbc  delator_1.2.4_Windows_x86_64.zip
+5d57b297182547450c3271b00a25ef058f160a79f8ba673c0beca181b7fe42d7  delator_1.2.4_Windows_i386.zip
